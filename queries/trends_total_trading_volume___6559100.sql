@@ -1,6 +1,7 @@
 -- part of a query repo
 -- query name: Trends Total Trading Volume
 -- query link: https://dune.com/queries/6559100
+-- purpose: Aggregate lifetime trading volume across DBC swaps, parsed bonding-curve swaps, and migrated DAMM v2 pools, then convert totals to SOL and USD.
 
 
 WITH migration_pools AS (
@@ -30,6 +31,19 @@ events AS (
     '7UQpAg2GfvwnBhuNAF5g9ujjDmkq7rPnF7Xogs4xE9AA',
     '7UP2hcAoYvyzumQv3BtvmXDCQk2WoqMEXKym8cCdLAh6'
   )
+
+  UNION ALL
+
+  -- Custom bonding curve swaps (parsed materialized view)
+  SELECT
+    DATE_TRUNC('minute', block_time) AS event_minute,
+    CASE
+      WHEN trade_direction = 0
+        THEN TRY_CAST(actual_amount_out AS DECIMAL(38,0)) / 1e9
+      ELSE
+        TRY_CAST(amount_in AS DECIMAL(38,0)) / 1e9
+    END AS volume_sol
+  FROM dune.data_watcher.result_bonding_curve_swap_events
 
   UNION ALL
 

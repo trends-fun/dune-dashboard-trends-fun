@@ -1,6 +1,7 @@
 -- part of a query repo
 -- query name: Trends
 -- query link: https://dune.com/queries/5555436
+-- purpose: Produce total/7-day trading volume and active-wallet metrics (SOL/USD), plus weekly wallet and trading trends across pre/post-migration activity.
 
 
 WITH sol_price AS (
@@ -22,10 +23,16 @@ pools AS (
     )
         AND call_block_date >= DATE'2025-06-02'
 ),
-internal_wallet_activity AS (
+internal_swap_events AS (
     SELECT
         evt_tx_signer,
-        evt_block_time
+        evt_block_time,
+        CASE
+            WHEN CAST(JSON_EXTRACT_SCALAR(swap_result, '$.SwapResult.actual_input_amount') AS BIGINT) >
+                 CAST(JSON_EXTRACT_SCALAR(swap_result, '$.SwapResult.output_amount') AS BIGINT)
+            THEN CAST(JSON_EXTRACT_SCALAR(swap_result, '$.SwapResult.output_amount') AS BIGINT) / 1000000000.0
+            ELSE CAST(JSON_EXTRACT_SCALAR(swap_result, '$.SwapResult.actual_input_amount') AS BIGINT) / 1000000000.0
+        END as trade_amount_sol
     FROM meteora_solana.dynamic_bonding_curve_evt_evtswap
     WHERE config in (
         '7UMR4yEaVYsQGbQGvxNUypFmPn15GkzVmwUEpUFJUPPX',
@@ -34,6 +41,25 @@ internal_wallet_activity AS (
         '7UP2hcAoYvyzumQv3BtvmXDCQk2WoqMEXKym8cCdLAh6'
     )
         AND evt_block_time >= DATE'2025-06-01'
+
+    UNION ALL
+
+    SELECT
+        trader AS evt_tx_signer,
+        block_time AS evt_block_time,
+        CASE
+            WHEN TRY_CAST(actual_amount_in AS BIGINT) > TRY_CAST(actual_amount_out AS BIGINT)
+            THEN TRY_CAST(actual_amount_out AS BIGINT) / 1000000000.0
+            ELSE TRY_CAST(actual_amount_in AS BIGINT) / 1000000000.0
+        END as trade_amount_sol
+    FROM dune.data_watcher.result_bonding_curve_swap_events
+    WHERE block_time >= DATE'2025-06-01'
+),
+internal_wallet_activity AS (
+    SELECT
+        evt_tx_signer,
+        evt_block_time
+    FROM internal_swap_events
 ),
 external_wallet_activity AS (
     SELECT
@@ -68,22 +94,8 @@ weekly_wallet_stats AS (
 weekly_internal_trades AS (
     SELECT
         DATE_TRUNC('week', evt_block_time) as week_start,
-        SUM(
-            CASE
-                WHEN CAST(JSON_EXTRACT_SCALAR(swap_result, '$.SwapResult.actual_input_amount') AS BIGINT) >
-                     CAST(JSON_EXTRACT_SCALAR(swap_result, '$.SwapResult.output_amount') AS BIGINT)
-                THEN CAST(JSON_EXTRACT_SCALAR(swap_result, '$.SwapResult.output_amount') AS BIGINT) / 1000000000.0
-                ELSE CAST(JSON_EXTRACT_SCALAR(swap_result, '$.SwapResult.actual_input_amount') AS BIGINT) / 1000000000.0
-            END
-        ) as weekly_trade_amount_sol
-    FROM meteora_solana.dynamic_bonding_curve_evt_evtswap
-    WHERE config in (
-        '7UMR4yEaVYsQGbQGvxNUypFmPn15GkzVmwUEpUFJUPPX',
-        '7UNpFBfTdWrcfS7aBQzEaPgZCfPJe8BDgHzwmWUZaMaF',
-        '7UQpAg2GfvwnBhuNAF5g9ujjDmkq7rPnF7Xogs4xE9AA',
-        '7UP2hcAoYvyzumQv3BtvmXDCQk2WoqMEXKym8cCdLAh6'
-    )
-        AND evt_block_time >= DATE'2025-06-01'
+        SUM(trade_amount_sol) as weekly_trade_amount_sol
+    FROM internal_swap_events
     GROUP BY DATE_TRUNC('week', evt_block_time)
 ),
 weekly_external_trades AS (
@@ -103,35 +115,16 @@ weekly_external_trades AS (
 ),
 internal_trades AS (
     SELECT
-        SUM(
-            CASE
-                WHEN CAST(JSON_EXTRACT_SCALAR(swap_result, '$.SwapResult.actual_input_amount') AS BIGINT) >
-                     CAST(JSON_EXTRACT_SCALAR(swap_result, '$.SwapResult.output_amount') AS BIGINT)
-                THEN CAST(JSON_EXTRACT_SCALAR(swap_result, '$.SwapResult.output_amount') AS BIGINT) / 1000000000.0
-                ELSE CAST(JSON_EXTRACT_SCALAR(swap_result, '$.SwapResult.actual_input_amount') AS BIGINT) / 1000000000.0
-            END
-        ) as total_trade_amount_sol,
+        SUM(trade_amount_sol) as total_trade_amount_sol,
         SUM(
             CASE
                 WHEN evt_block_time >= CURRENT_TIMESTAMP - INTERVAL '7' DAY
-                THEN
-                    CASE
-                        WHEN CAST(JSON_EXTRACT_SCALAR(swap_result, '$.SwapResult.actual_input_amount') AS BIGINT) >
-                             CAST(JSON_EXTRACT_SCALAR(swap_result, '$.SwapResult.output_amount') AS BIGINT)
-                        THEN CAST(JSON_EXTRACT_SCALAR(swap_result, '$.SwapResult.output_amount') AS BIGINT) / 1000000000.0
-                        ELSE CAST(JSON_EXTRACT_SCALAR(swap_result, '$.SwapResult.actual_input_amount') AS BIGINT) / 1000000000.0
-                    END
+                THEN trade_amount_sol
                 ELSE 0
             END
         ) as last_7_days_trade_amount_sol
-    FROM meteora_solana.dynamic_bonding_curve_evt_evtswap
-    WHERE config in (
-        '7UMR4yEaVYsQGbQGvxNUypFmPn15GkzVmwUEpUFJUPPX',
-        '7UNpFBfTdWrcfS7aBQzEaPgZCfPJe8BDgHzwmWUZaMaF',
-        '7UQpAg2GfvwnBhuNAF5g9ujjDmkq7rPnF7Xogs4xE9AA',
-        '7UP2hcAoYvyzumQv3BtvmXDCQk2WoqMEXKym8cCdLAh6'
-    )
-        AND evt_block_time >= DATE'2024-05-01'
+    FROM internal_swap_events
+    WHERE evt_block_time >= DATE'2024-05-01'
 ),
 external_trades AS (
     SELECT

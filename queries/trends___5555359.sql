@@ -1,6 +1,7 @@
 -- part of a query repo
 -- query name: Trends
 -- query link: https://dune.com/queries/5555359
+-- purpose: List launched tokens under target configs with graduation status, token metadata, holders, and deployer details for dashboard-level token browsing.
 
 
 WITH

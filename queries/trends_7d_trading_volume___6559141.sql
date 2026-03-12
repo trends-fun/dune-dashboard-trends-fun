@@ -1,6 +1,7 @@
 -- part of a query repo
 -- query name: Trends 7D Trading Volume
 -- query link: https://dune.com/queries/6559141
+-- purpose: Aggregate 7-day trading volume across DBC, parsed bonding-curve swaps, and migrated DAMM v2 pools, then output SOL and USD totals.
 
 
 WITH migration_pools AS (
@@ -32,6 +33,21 @@ events AS (
   )
     AND evt_block_date >= CURRENT_DATE - INTERVAL '7' DAY
     AND evt_block_date < CURRENT_DATE
+
+  UNION ALL
+
+  -- Custom bonding curve swaps (parsed materialized view)
+  SELECT
+    DATE_TRUNC('minute', block_time) AS event_minute,
+    CASE
+      WHEN trade_direction = 0
+        THEN TRY_CAST(actual_amount_out AS DECIMAL(38,0)) / 1e9
+      ELSE
+        TRY_CAST(amount_in AS DECIMAL(38,0)) / 1e9
+    END AS volume_sol
+  FROM dune.data_watcher.result_bonding_curve_swap_events
+  WHERE block_time >= CAST(CURRENT_DATE - INTERVAL '7' DAY AS TIMESTAMP)
+    AND block_time < CAST(CURRENT_DATE AS TIMESTAMP)
 
   UNION ALL
 

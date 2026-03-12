@@ -1,6 +1,7 @@
 -- part of a query repo
 -- query name: Trends
 -- query link: https://dune.com/queries/5555117
+-- purpose: Calculate launch/migration totals and graduation rates (overall and last 7 days), plus weekly launch-migration trends for the last 3 months.
 
 
 WITH summary_stats AS (

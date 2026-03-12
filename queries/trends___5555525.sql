@@ -1,6 +1,7 @@
 -- part of a query repo
 -- query name: Trends
 -- query link: https://dune.com/queries/5555525
+-- purpose: Estimate ecosystem market cap by combining internal and migrated tokens, including priced supply-based cap and fallback assumptions for missing prices.
 
 
 WITH internal_tokens AS (

@@ -1,6 +1,7 @@
 -- part of a query repo
 -- query name: Trends
 -- query link: https://dune.com/queries/5576518
+-- purpose: Aggregate token projects by name and compute total trading volume (SOL/USD), while also returning overall and recent-7-day unique name counts.
 
 
 WITH
@@ -87,29 +88,49 @@ pools AS (
         )
 ),
 
+-- Unified internal swap events (DBC + custom parsed contract)
+internal_swap_events AS (
+    SELECT
+        evt_tx_signer AS tx_signer,
+        evt_block_time AS block_time,
+        CASE
+            WHEN CAST(JSON_EXTRACT_SCALAR(swap_result, '$.SwapResult.actual_input_amount') AS BIGINT) >
+                 CAST(JSON_EXTRACT_SCALAR(swap_result, '$.SwapResult.output_amount') AS BIGINT)
+            THEN CAST(JSON_EXTRACT_SCALAR(swap_result, '$.SwapResult.output_amount') AS BIGINT) / 1000000000.0
+            ELSE CAST(JSON_EXTRACT_SCALAR(swap_result, '$.SwapResult.actual_input_amount') AS BIGINT) / 1000000000.0
+        END AS trading_volume_sol
+    FROM meteora_solana.dynamic_bonding_curve_evt_evtswap
+    WHERE config in (
+        '7UMR4yEaVYsQGbQGvxNUypFmPn15GkzVmwUEpUFJUPPX',
+        '7UNpFBfTdWrcfS7aBQzEaPgZCfPJe8BDgHzwmWUZaMaF',
+        '7UQpAg2GfvwnBhuNAF5g9ujjDmkq7rPnF7Xogs4xE9AA',
+        '7UP2hcAoYvyzumQv3BtvmXDCQk2WoqMEXKym8cCdLAh6'
+    )
+        AND evt_block_time >= DATE'2025-06-01'
+
+    UNION ALL
+
+    SELECT
+        trader AS tx_signer,
+        block_time,
+        CASE
+            WHEN TRY_CAST(actual_amount_in AS BIGINT) > TRY_CAST(actual_amount_out AS BIGINT)
+            THEN TRY_CAST(actual_amount_out AS BIGINT) / 1000000000.0
+            ELSE TRY_CAST(actual_amount_in AS BIGINT) / 1000000000.0
+        END AS trading_volume_sol
+    FROM dune.data_watcher.result_bonding_curve_swap_events
+    WHERE block_time >= DATE'2025-06-01'
+),
+
 -- Calculate internal trading volume (for non-graduated tokens)
 internal_trading_volume AS (
     SELECT
         ti.token_mint_address,
-        SUM(
-            CASE
-                WHEN CAST(JSON_EXTRACT_SCALAR(swap_result, '$.SwapResult.actual_input_amount') AS BIGINT) >
-                     CAST(JSON_EXTRACT_SCALAR(swap_result, '$.SwapResult.output_amount') AS BIGINT)
-                THEN CAST(JSON_EXTRACT_SCALAR(swap_result, '$.SwapResult.output_amount') AS BIGINT) / 1000000000.0
-                ELSE CAST(JSON_EXTRACT_SCALAR(swap_result, '$.SwapResult.actual_input_amount') AS BIGINT) / 1000000000.0
-            END
-        ) AS trading_volume_sol
+        SUM(ise.trading_volume_sol) AS trading_volume_sol
     FROM token_info ti
-    JOIN meteora_solana.dynamic_bonding_curve_evt_evtswap ds 
-        ON ti.tx_signer = ds.evt_tx_signer
+    JOIN internal_swap_events ise
+        ON ti.tx_signer = ise.tx_signer
     WHERE ti.is_graduated = FALSE
-        AND ds.config in (
-            '7UMR4yEaVYsQGbQGvxNUypFmPn15GkzVmwUEpUFJUPPX',
-            '7UNpFBfTdWrcfS7aBQzEaPgZCfPJe8BDgHzwmWUZaMaF',
-            '7UQpAg2GfvwnBhuNAF5g9ujjDmkq7rPnF7Xogs4xE9AA',
-            '7UP2hcAoYvyzumQv3BtvmXDCQk2WoqMEXKym8cCdLAh6'
-        )
-        AND ds.evt_block_time >= DATE'2025-06-01'
     GROUP BY ti.token_mint_address
 ),
 

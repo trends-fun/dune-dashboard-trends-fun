@@ -1,6 +1,7 @@
 -- part of a query repo
 -- query name: Trends
 -- query link: https://dune.com/queries/5681083
+-- purpose: Show graduated token list with launch time, social/name formatting, symbol, holder count, and deployer information.
 
 
 WITH

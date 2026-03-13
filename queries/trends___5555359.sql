@@ -40,10 +40,22 @@ WITH
         SELECT token_mint_address FROM graduated_tokens
       )
   ),
+  new_curve_tokens AS (
+    SELECT
+      base_mint AS token_mint_address,
+      MIN(block_time) AS block_time,
+      FALSE AS is_graduated
+    FROM
+      dune.data_watcher.result_bonding_curve_swap_events
+    GROUP BY
+      base_mint
+  ),
   all_tokens AS (
     SELECT * FROM graduated_tokens
     UNION ALL
     SELECT * FROM non_graduated_tokens
+    UNION ALL
+    SELECT * FROM new_curve_tokens
   ),
   token_info AS (
     SELECT

@@ -53,11 +53,26 @@ non_graduated_tokens AS (
         )
 ),
 
+-- Get tokens from the new bonding curve
+new_curve_tokens AS (
+SELECT
+    base_mint AS token_mint_address,
+    CAST(NULL AS VARCHAR) AS tx_signer,
+    MIN(block_time) AS block_time,
+    FALSE AS is_graduated
+FROM
+    dune.data_watcher.result_bonding_curve_swap_events
+GROUP BY
+    base_mint
+),
+
 -- Combine all tokens
 all_tokens AS (
     SELECT * FROM graduated_tokens
     UNION ALL
     SELECT * FROM non_graduated_tokens
+    UNION ALL
+    SELECT * FROM new_curve_tokens
 ),
 
 -- Get token info from tokens table

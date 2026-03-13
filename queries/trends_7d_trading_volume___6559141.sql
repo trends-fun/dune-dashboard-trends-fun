@@ -60,7 +60,7 @@ events AS (
       ELSE
         TRY_CAST(JSON_EXTRACT_SCALAR(params, '$.SwapParameters.amount_in') AS DECIMAL(38,0)) / 1e9
     END AS volume_sol
-  FROM meteora_solana.cp_amm_evt_evtswap2 e
+  FROM meteora_solana.cp_amm_evt_evtswap e
   WHERE EXISTS (
     SELECT 1
     FROM migration_pools m
@@ -76,9 +76,9 @@ events AS (
     DATE_TRUNC('minute', evt_block_time) AS event_minute,
     CASE
       WHEN trade_direction = 0
-        THEN TRY_CAST(JSON_EXTRACT_SCALAR(swap_result, '$.SwapResult2.output_amount') AS DECIMAL(38,0)) / 1e9
+        THEN included_transfer_fee_amount_out / 1e9
       ELSE
-        TRY_CAST(JSON_EXTRACT_SCALAR(params, '$.SwapParameters2.amount_0') AS DECIMAL(38,0)) / 1e9
+        included_transfer_fee_amount_in / 1e9
     END AS volume_sol
   FROM meteora_solana.cp_amm_evt_evtswap2 e
   WHERE EXISTS (

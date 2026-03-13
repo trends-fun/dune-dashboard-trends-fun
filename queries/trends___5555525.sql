@@ -36,10 +36,24 @@ external_tokens AS (
     AND call_block_date >= DATE '2025-06-01'
 ),
 
+new_curve_tokens AS (
+  SELECT
+    base_mint AS token_mint_address,
+    CAST(NULL AS VARCHAR) AS tx_signer,
+    MIN(block_time) AS block_time,
+    'internal' AS token_type
+  FROM
+    dune.data_watcher.result_bonding_curve_swap_events
+  GROUP BY
+    base_mint
+),
+
 all_tokens AS (
   SELECT * FROM internal_tokens
   UNION ALL
   SELECT * FROM external_tokens
+  UNION ALL
+  SELECT * FROM new_curve_tokens
 ),
 
 token_info AS (
